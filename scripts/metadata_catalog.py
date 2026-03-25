@@ -4,11 +4,20 @@ from dataclasses import dataclass, field
 from typing import Any
 
 
-def build_column_key(table_name: str, column_name: str) -> str:
-    # `table_name::column_name` is the stable identifier inside one namespace.
-    # Keep this format simple and explicit so it can be reused across loaders,
-    # prompt bundles, rule metadata, and future external adapters.
+def log_column_identity(table_name: str, column_name: str) -> str:
+    # Keep a compact `table::column` label for logs and human debugging only.
+    # It is no longer part of the persisted source-of-truth contract.
     return f"{table_name}::{column_name}"
+
+
+@dataclass(frozen=True, order=True)
+class ColumnRef:
+    table_name: str
+    column_name: str
+
+    @property
+    def log_label(self) -> str:
+        return log_column_identity(self.table_name, self.column_name)
 
 
 @dataclass(frozen=True)
@@ -24,8 +33,8 @@ class ColumnSpec:
     data_type: str | None = None
 
     @property
-    def column_key(self) -> str:
-        return build_column_key(self.table_name, self.column_name)
+    def ref(self) -> ColumnRef:
+        return ColumnRef(self.table_name, self.column_name)
 
 
 @dataclass(frozen=True)
@@ -38,15 +47,15 @@ class ValueSpec:
     business_tags: list[str] = field(default_factory=list)
 
     @property
-    def column_key(self) -> str:
-        return build_column_key(self.table_name, self.column_name)
+    def ref(self) -> ColumnRef:
+        return ColumnRef(self.table_name, self.column_name)
 
 
 @dataclass(frozen=True)
 class RuleSpec:
     rule_id: str
     description: str
-    candidate_columns: list[str] = field(default_factory=list)
+    candidate_columns: list[ColumnRef] = field(default_factory=list)
     trigger_terms: list[str] = field(default_factory=list)
     intent: str | None = None
     priority: int = 0
@@ -63,9 +72,11 @@ class ValidationIssue:
 
 @dataclass(frozen=True)
 class MetadataCatalog:
-    # A catalog is namespace-scoped on purpose so one database can host many
-    # datasource-specific metadata graphs without global name collisions.
-    namespace: str
+    # The loader works inside one owner + namespace scope so one database can
+    # host many tenant/project-specific metadata graphs without global name
+    # collisions.
+    resource_owner: str
+    resource_namespace: str
     columns: list[ColumnSpec]
     values: list[ValueSpec]
     rules: list[RuleSpec]

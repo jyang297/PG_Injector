@@ -4,29 +4,16 @@ import argparse
 import json
 
 import psycopg
+from psycopg import sql
+
 from context_manager_config import get_config
 from embeddings import embed_text, vector_literal
+from metadata_catalog import ColumnRef, log_column_identity
 from normalization import normalize_for_search, normalized_tokens
 from utils import RunInstrumentation, compact_sentence, configure_logger, count_by_key
 
 CONFIG = get_config()
 DATABASE_URL = CONFIG.runtime.database_url
-
-
-COLUMN_DETAIL_SQL = """
-SELECT
-  catalog_namespace,
-  column_key,
-  table_name,
-  column_name,
-  raw_column_name,
-  description,
-  aliases,
-  data_type
-FROM column_catalog
-WHERE catalog_namespace = %s
-  AND column_key = ANY(%s)
-"""
 
 NOISE_WORDS = {
     "a",
@@ -105,9 +92,14 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("query_text", help="User query to retrieve metadata for.")
     parser.add_argument(
+        "--owner",
+        default=CONFIG.runtime.default_resource_owner,
+        help="Resource owner to search within.",
+    )
+    parser.add_argument(
         "--namespace",
-        default=CONFIG.runtime.default_catalog_namespace,
-        help="Catalog namespace to search within.",
+        default=CONFIG.runtime.default_resource_namespace,
+        help="Resource namespace to search within.",
     )
     parser.add_argument(
         "--json",
@@ -132,10 +124,6 @@ def extract_keywords(normalized_query: str) -> list[str]:
 
 
 def build_retrieval_inputs(query_text: str) -> dict:
-    # `normalized_query` is the compact canonical form passed forward to prompt
-    # assembly and lexical retrieval. `semantic_query` stays close to the raw
-    # user phrasing so pgvector still sees STT noise, abstraction, and
-    # underspecified wording instead of only canonical keywords.
     raw_normalized = normalize_for_search(query_text)
     cleaned_terms = normalize_query_terms(query_text)
     normalized_query = " ".join(cleaned_terms) if cleaned_terms else raw_normalized
@@ -157,7 +145,8 @@ def build_query_embedding(semantic_query_text: str) -> str:
 
 def fetch_hybrid_results(
     conn: psycopg.Connection,
-    catalog_namespace: str,
+    resource_owner: str,
+    resource_namespace: str,
     query_embedding: str,
     lexical_query_text: str,
     limit: int | None = None,
@@ -167,17 +156,21 @@ def fetch_hybrid_results(
         cur.execute(
             """
             SELECT *
-            FROM hybrid_search(%s, %s, %s::vector, %s)
+            FROM hybrid_search(%s, %s, %s, %s::vector, %s)
             """,
-            (catalog_namespace, lexical_query_text, query_embedding, effective_limit),
+            (
+                resource_owner,
+                resource_namespace,
+                lexical_query_text,
+                query_embedding,
+                effective_limit,
+            ),
         )
         return cur.fetchall()
 
 
 def keyword_hits_for_row(row, keywords: list[str]) -> set[str]:
     payload = row["payload"] or {}
-    # Coverage is only a confidence/tie-breaker signal. Restrict it to exact
-    # anchors so verbose descriptions cannot overpower stronger hybrid hits.
     haystack = " ".join(
         [
             str(row.get("text_exact") or ""),
@@ -187,7 +180,14 @@ def keyword_hits_for_row(row, keywords: list[str]) -> set[str]:
             " ".join(payload.get("aliases") or []),
             " ".join(payload.get("synonyms") or []),
             " ".join(payload.get("business_tags") or []),
-            " ".join(payload.get("candidate_columns") or []),
+            " ".join(
+                log_column_identity(
+                    candidate["table_name"],
+                    candidate["column_name"],
+                )
+                for candidate in (payload.get("candidate_columns") or [])
+                if candidate.get("table_name") and candidate.get("column_name")
+            ),
             " ".join(payload.get("trigger_terms") or []),
         ]
     ).lower()
@@ -196,31 +196,115 @@ def keyword_hits_for_row(row, keywords: list[str]) -> set[str]:
 
 def fetch_column_details(
     conn: psycopg.Connection,
-    catalog_namespace: str,
-    column_keys: list[str],
-):
-    if not column_keys:
+    resource_owner: str,
+    resource_namespace: str,
+    column_refs: list[ColumnRef],
+) -> dict[ColumnRef, dict]:
+    if not column_refs:
         return {}
+    values_clause = sql.SQL(", ").join(sql.SQL("(%s, %s)") for _ in column_refs)
+    query = sql.SQL(
+        """
+        WITH wanted(table_name, column_name) AS (
+          VALUES {values_clause}
+        )
+        SELECT
+          cc.resource_owner,
+          cc.resource_namespace,
+          cc.table_name,
+          cc.column_name,
+          cc.raw_column_name,
+          cc.description,
+          cc.aliases,
+          cc.data_type,
+          cc.value_cardinality,
+          cc.mandatory_description_in_prompt
+        FROM column_catalog cc
+        JOIN wanted w USING (table_name, column_name)
+        WHERE cc.resource_owner = %s
+          AND cc.resource_namespace = %s
+        """
+    ).format(values_clause=values_clause)
+    params = [
+        value
+        for ref in column_refs
+        for value in (ref.table_name, ref.column_name)
+    ]
+    params.extend([resource_owner, resource_namespace])
     with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
-        cur.execute(COLUMN_DETAIL_SQL, (catalog_namespace, column_keys))
-        return {row["column_key"]: row for row in cur.fetchall()}
+        cur.execute(query, params)
+        return {
+            ColumnRef(row["table_name"], row["column_name"]): row
+            for row in cur.fetchall()
+        }
+
+
+def fetch_mandatory_prompt_columns(
+    conn: psycopg.Connection,
+    resource_owner: str,
+    resource_namespace: str,
+) -> dict[ColumnRef, dict]:
+    with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
+        cur.execute(
+            """
+            SELECT
+              resource_owner,
+              resource_namespace,
+              table_name,
+              column_name,
+              raw_column_name,
+              description,
+              aliases,
+              data_type,
+              value_cardinality,
+              mandatory_description_in_prompt
+            FROM column_catalog
+            WHERE resource_owner = %s
+              AND resource_namespace = %s
+              AND mandatory_description_in_prompt = true
+            ORDER BY table_name, column_name
+            """,
+            (resource_owner, resource_namespace),
+        )
+        return {
+            ColumnRef(row["table_name"], row["column_name"]): row
+            for row in cur.fetchall()
+        }
+
+
+def column_ref_from_row(row) -> ColumnRef | None:
+    table_name = row.get("table_name")
+    column_name = row.get("column_name")
+    if not table_name or not column_name:
+        return None
+    return ColumnRef(table_name=table_name, column_name=column_name)
+
+
+def column_ref_from_candidate(candidate: dict) -> ColumnRef | None:
+    table_name = candidate.get("table_name")
+    column_name = candidate.get("column_name")
+    if not table_name or not column_name:
+        return None
+    return ColumnRef(table_name=table_name, column_name=column_name)
 
 
 def build_candidate_columns(
     conn: psycopg.Connection,
-    catalog_namespace: str,
+    resource_owner: str,
+    resource_namespace: str,
     rows,
     keywords: list[str],
     top_columns: int | None = None,
 ):
     effective_top_columns = top_columns or CONFIG.query.top_candidate_columns
-    candidates = {}
+    candidates: dict[ColumnRef, dict] = {}
 
-    def ensure_bucket(column_key: str):
+    def ensure_bucket(column_ref: ColumnRef) -> dict:
         return candidates.setdefault(
-            column_key,
+            column_ref,
             {
-                "column_key": column_key,
+                "table_name": column_ref.table_name,
+                "column_name": column_ref.column_name,
                 "score": 0.0,
                 "coverage_terms": set(),
                 "matched_values": {},
@@ -240,8 +324,11 @@ def build_candidate_columns(
                 * CHUNK_TYPE_WEIGHTS["rule"]
                 / max(len(candidate_columns), 1)
             )
-            for column_key in candidate_columns:
-                bucket = ensure_bucket(column_key)
+            for candidate in candidate_columns:
+                column_ref = column_ref_from_candidate(candidate)
+                if not column_ref:
+                    continue
+                bucket = ensure_bucket(column_ref)
                 bucket["score"] += per_column_bonus
                 bucket["coverage_terms"].update(keyword_hits_for_row(row, keywords))
                 bucket["matched_rules"][row["rule_id"]] = {
@@ -251,11 +338,11 @@ def build_candidate_columns(
                 }
             continue
 
-        column_key = row["column_key"] or payload.get("parent_column_key")
-        if not column_key:
+        column_ref = column_ref_from_row(row)
+        if not column_ref:
             continue
 
-        bucket = ensure_bucket(column_key)
+        bucket = ensure_bucket(column_ref)
         bucket["score"] += row["score"] * CHUNK_TYPE_WEIGHTS.get(row["chunk_type"], 1.0)
         bucket["coverage_terms"].update(keyword_hits_for_row(row, keywords))
         bucket["supporting_chunks"].append(
@@ -263,7 +350,8 @@ def build_candidate_columns(
                 "chunk_key": row["chunk_key"],
                 "chunk_type": row["chunk_type"],
                 "score": row["score"],
-                "column_key": row["column_key"],
+                "table_name": row["table_name"],
+                "column_name": row["column_name"],
                 "raw_value": row["raw_value"],
             }
         )
@@ -274,40 +362,32 @@ def build_candidate_columns(
                 {
                     "raw_value": row["raw_value"],
                     "score": 0.0,
-                    # Matched values are prompt-facing evidence, so keep the
-                    # explanation to a single gloss sentence instead of the
-                    # longer offline payload text.
                     "value_gloss": compact_sentence(payload.get("value_gloss") or ""),
                     "synonyms": payload.get("synonyms") or [],
                 },
             )
             matched_value["score"] += row["score"]
 
-    column_details = fetch_column_details(conn, catalog_namespace, list(candidates))
-    # Chunks are only evidence. SQL generation consumes ranked columns, so
-    # hybrid score stays primary and lexical keyword coverage is only a
-    # tie-breaker for similarly scored candidates.
+    column_details = fetch_column_details(
+        conn,
+        resource_owner,
+        resource_namespace,
+        list(candidates),
+    )
     ranked = sorted(
         candidates.values(),
         key=lambda item: (
             -item["score"],
             -len(item["coverage_terms"]),
-            item["column_key"],
+            item["table_name"],
+            item["column_name"],
         ),
     )[:effective_top_columns]
 
     bundles = []
     for candidate in ranked:
-        detail = column_details.get(candidate["column_key"], {})
-        resolved_table_name = detail.get("table_name")
-        resolved_column_name = detail.get("column_name")
-        if (
-            (not resolved_table_name or not resolved_column_name)
-            and "::" in candidate["column_key"]
-        ):
-            resolved_table_name, resolved_column_name = candidate[
-                "column_key"
-            ].split("::", maxsplit=1)
+        column_ref = ColumnRef(candidate["table_name"], candidate["column_name"])
+        detail = column_details.get(column_ref, {})
         matched_values = sorted(
             candidate["matched_values"].values(),
             key=lambda item: (-item["score"], item["raw_value"]),
@@ -318,15 +398,19 @@ def build_candidate_columns(
         )
         bundles.append(
             {
-                "column_key": candidate["column_key"],
-                "table_name": resolved_table_name,
-                "column_name": resolved_column_name,
+                "table_name": candidate["table_name"],
+                "column_name": candidate["column_name"],
                 "raw_column_name": detail.get("raw_column_name"),
                 "score": candidate["score"],
                 "coverage_terms": sorted(candidate["coverage_terms"]),
                 "short_description": compact_sentence(detail.get("description") or ""),
                 "aliases": detail.get("aliases") or [],
                 "data_type": detail.get("data_type"),
+                "value_cardinality": detail.get("value_cardinality", 0),
+                "mandatory_description_in_prompt": bool(
+                    detail.get("mandatory_description_in_prompt")
+                ),
+                "injection_source": "retrieval",
                 "matched_values": matched_values[:4],
                 "matched_rules": matched_rules[:4],
                 "supporting_chunks": sorted(
@@ -335,15 +419,49 @@ def build_candidate_columns(
                 )[:6],
             }
         )
+    seen_refs = {
+        ColumnRef(bundle["table_name"], bundle["column_name"])
+        for bundle in bundles
+    }
+    mandatory_details = fetch_mandatory_prompt_columns(
+        conn,
+        resource_owner,
+        resource_namespace,
+    )
+    for column_ref, detail in mandatory_details.items():
+        if column_ref in seen_refs:
+            for bundle in bundles:
+                if (
+                    bundle["table_name"] == column_ref.table_name
+                    and bundle["column_name"] == column_ref.column_name
+                ):
+                    bundle["mandatory_description_in_prompt"] = True
+                    bundle["value_cardinality"] = detail.get("value_cardinality", 0)
+            continue
+        bundles.append(
+            {
+                "table_name": column_ref.table_name,
+                "column_name": column_ref.column_name,
+                "raw_column_name": detail.get("raw_column_name"),
+                "score": 0.0,
+                "coverage_terms": [],
+                "short_description": compact_sentence(detail.get("description") or ""),
+                "aliases": detail.get("aliases") or [],
+                "data_type": detail.get("data_type"),
+                "value_cardinality": detail.get("value_cardinality", 0),
+                "mandatory_description_in_prompt": True,
+                "injection_source": "mandatory_high_cardinality",
+                "matched_values": [],
+                "matched_rules": [],
+                "supporting_chunks": [],
+            }
+        )
     return bundles
 
 
 def build_prompt_candidate_columns(candidate_columns) -> list[dict]:
-    # The SQL generator only needs compact grounding. Scores, coverage terms,
-    # and supporting chunks stay in the debug path instead of inflating prompts.
     return [
         {
-            "column_key": bundle["column_key"],
             "table_name": bundle["table_name"],
             "column_name": bundle["column_name"],
             "raw_column_name": bundle["raw_column_name"],
@@ -370,14 +488,13 @@ def build_prompt_candidate_columns(candidate_columns) -> list[dict]:
 
 
 def build_prompt_bundle(
-    catalog_namespace: str,
+    resource_owner: str,
+    resource_namespace: str,
     query_text: str,
     rows,
     candidate_columns,
     retrieval_inputs: dict,
 ):
-    # Keep the prompt bundle compact and provider-agnostic so the same metadata
-    # shape can be reused across different SQL-generation baselines.
     seen_rules = set()
     matched_rules = []
     for row in rows:
@@ -394,7 +511,8 @@ def build_prompt_bundle(
         )
 
     return {
-        "catalog_namespace": catalog_namespace,
+        "resource_owner": resource_owner,
+        "resource_namespace": resource_namespace,
         "raw_query": query_text,
         "normalized_query": retrieval_inputs["normalized_query"],
         "retrieval_rewrite": retrieval_inputs["retrieval_rewrite"],
@@ -404,13 +522,15 @@ def build_prompt_bundle(
 
 
 def build_instrumentation_summary(rows, candidate_columns) -> dict:
-    # These metrics stay intentionally simple so they can be compared across
-    # retrieval variants without provider-specific parsing.
     return {
         "hit_count": len(rows),
         "chunk_type_counts": count_by_key(rows, "chunk_type"),
         "top_hit_chunk_keys": [row["chunk_key"] for row in rows[:5]],
-        "top_hit_columns": [row["column_key"] for row in rows[:5]],
+        "top_hit_columns": [
+            log_column_identity(row["table_name"], row["column_name"])
+            for row in rows[:5]
+            if row.get("table_name") and row.get("column_name")
+        ],
         "candidate_column_count": len(candidate_columns),
         "matched_value_count": sum(
             len(candidate["matched_values"]) for candidate in candidate_columns
@@ -418,17 +538,24 @@ def build_instrumentation_summary(rows, candidate_columns) -> dict:
         "matched_rule_count": sum(
             len(candidate["matched_rules"]) for candidate in candidate_columns
         ),
+        "mandatory_injected_columns": sum(
+            1
+            for candidate in candidate_columns
+            if candidate.get("injection_source") == "mandatory_high_cardinality"
+        ),
     }
 
 
 def print_text(
-    catalog_namespace: str,
+    resource_owner: str,
+    resource_namespace: str,
     retrieval_inputs: dict,
     rows,
     candidate_columns,
     run_metrics: dict,
 ):
-    print(f"Catalog namespace: {catalog_namespace}")
+    print(f"Resource owner: {resource_owner}")
+    print(f"Resource namespace: {resource_namespace}")
     print(f"Raw query: {retrieval_inputs['raw_query']}")
     print(f"Normalized query: {retrieval_inputs['normalized_query']}")
     print(f"Lexical query: {retrieval_inputs['lexical_query']}")
@@ -436,12 +563,9 @@ def print_text(
     print("Top hybrid hits:")
     for idx, row in enumerate(rows[:8], start=1):
         column_label = (
-            row["column_key"]
-            or (
-                f"{(row['payload'] or {}).get('table_name')}::{row['column_name']}"
-                if row["column_name"]
-                else None
-            )
+            log_column_identity(row["table_name"], row["column_name"])
+            if row.get("table_name") and row.get("column_name")
+            else None
         )
         print(
             f"{idx}. {row['chunk_type']} | score={row['score']:.5f} | "
@@ -457,9 +581,14 @@ def print_text(
 
     for idx, bundle in enumerate(candidate_columns, start=1):
         print(
-            f"{idx}. {bundle['table_name']}::{bundle['column_name']} | "
+            f"{idx}. {log_column_identity(bundle['table_name'], bundle['column_name'])} | "
             f"aggregate_score={bundle['score']:.5f}"
         )
+        if bundle.get("mandatory_description_in_prompt"):
+            print(
+                "   mandatory description injection: yes "
+                f"(value_cardinality={bundle.get('value_cardinality', 0)})"
+            )
         print(f"   raw column name: {bundle['raw_column_name'] or '-'}")
         print(f"   keyword coverage: {', '.join(bundle['coverage_terms']) or '-'}")
         print(f"   meaning: {bundle['short_description']}")
@@ -494,7 +623,8 @@ def print_text(
 
 def main():
     args = parse_args()
-    catalog_namespace = args.namespace
+    resource_owner = args.owner
+    resource_namespace = args.namespace
 
     logger = configure_logger("query")
     instrumentation = RunInstrumentation("query", logger=logger)
@@ -502,7 +632,8 @@ def main():
         "runtime_config",
         {
             "database_url": DATABASE_URL,
-            "catalog_namespace": catalog_namespace,
+            "resource_owner": resource_owner,
+            "resource_namespace": resource_namespace,
             "hybrid_search_limit": CONFIG.query.hybrid_search_limit,
             "top_candidate_columns": CONFIG.query.top_candidate_columns,
             "chunk_type_weights": dict(CHUNK_TYPE_WEIGHTS),
@@ -524,20 +655,18 @@ def main():
 
     with psycopg.connect(DATABASE_URL) as conn:
         with instrumentation.stage("fetch_hybrid_results"):
-            # Retrieval limit is intentionally configurable because baseline
-            # comparisons often sweep recall/latency tradeoffs here first.
             rows = fetch_hybrid_results(
                 conn,
-                catalog_namespace,
+                resource_owner,
+                resource_namespace,
                 query_embedding,
                 retrieval_inputs["lexical_query"],
             )
         with instrumentation.stage("build_candidate_columns"):
-            # Top-N columns is the final context budget boundary before prompt
-            # assembly, so it also lives in config for controlled experiments.
             candidate_columns = build_candidate_columns(
                 conn,
-                catalog_namespace,
+                resource_owner,
+                resource_namespace,
                 rows,
                 retrieval_inputs["keywords"],
             )
@@ -549,7 +678,8 @@ def main():
 
     with instrumentation.stage("build_prompt_metadata"):
         prompt_metadata = build_prompt_bundle(
-            catalog_namespace,
+            resource_owner,
+            resource_namespace,
             query_text,
             rows,
             candidate_columns,
@@ -563,7 +693,8 @@ def main():
         print(
             json.dumps(
                 {
-                    "catalog_namespace": catalog_namespace,
+                    "resource_owner": resource_owner,
+                    "resource_namespace": resource_namespace,
                     **retrieval_inputs,
                     "hits": rows,
                     "candidate_columns_debug": candidate_columns,
@@ -577,7 +708,8 @@ def main():
         return
 
     print_text(
-        catalog_namespace,
+        resource_owner,
+        resource_namespace,
         retrieval_inputs,
         rows,
         candidate_columns,

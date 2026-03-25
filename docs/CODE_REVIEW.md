@@ -9,9 +9,12 @@ No new blocking correctness issues were found in the current metadata retrieval 
 The core contracts now look coherent:
 
 - `table_name` is required at the source boundary
-- `column_key = table_name::column_name` is threaded through schema, loader, retrieval, and prompt assembly
+- stable column identity is structured as `resource_owner + resource_namespace + table_name + column_name`
+- `table_name::column_name` is generated only for logs and debugging
+- the reserved `::` separator is now treated as invalid inside raw source identifiers
 - namespace replacement is scoped and transactional
 - prompt/debug split is real, not only documented
+- high-cardinality columns still inject descriptions into prompt metadata even when their values are not chunked
 
 ## Residual risks
 

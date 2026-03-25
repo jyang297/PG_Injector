@@ -6,7 +6,7 @@ Target file: `scripts/load_demo.py`
 
 ### 1. Normalize source metadata
 
-- Accept `column_name` or `column_key`
+- Accept explicit `table_name + column_name`, or accept legacy `column_key` only inside the adapter boundary
 - Accept `value_gloss` or `value_description`
 - Preserve optional fields such as aliases and data type
 

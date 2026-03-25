@@ -11,7 +11,8 @@ from typing import Mapping
 @dataclass(frozen=True)
 class RuntimeConfig:
     database_url: str
-    default_catalog_namespace: str
+    default_resource_owner: str
+    default_resource_namespace: str
 
 
 @dataclass(frozen=True)
@@ -52,19 +53,24 @@ def get_config() -> ContextManagerConfig:
 
     # This file is intentionally small: only runtime/tuning values that may
     # differ across environments or baselines should live here.
-    # The handwritten SQL schema is still the source of truth for shape-level
+    # The handwritten SQL files are still the source of truth for shape-level
     # values. If embedding dim ever changes in `scripts/embeddings.py`, manually
     # sync the matching `vector(24)` declarations in `sql/01_init.sql` for
-    # `metadata_chunks.embedding` and `hybrid_search(query_embedding vector(...))`.
+    # `metadata_chunks.embedding` and in `sql/02_retrieval.sql` for
+    # `hybrid_search(query_embedding vector(...))`.
     return ContextManagerConfig(
         runtime=RuntimeConfig(
             database_url=os.environ.get(
                 "DATABASE_URL",
                 "postgresql://postgres:postgres@localhost:5433/context_demo",
             ),
-            default_catalog_namespace=os.environ.get(
-                "CATALOG_NAMESPACE",
-                "demo.default",
+            default_resource_owner=os.environ.get(
+                "RESOURCE_OWNER",
+                "demo",
+            ),
+            default_resource_namespace=os.environ.get(
+                "RESOURCE_NAMESPACE",
+                os.environ.get("CATALOG_NAMESPACE", "default"),
             ),
         ),
         loader=LoaderConfig(

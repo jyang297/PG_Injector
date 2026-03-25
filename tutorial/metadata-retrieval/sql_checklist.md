@@ -1,6 +1,6 @@
 # SQL Checklist
 
-Target file: `sql/01_init.sql`
+Target files: `sql/01_init.sql`, `sql/02_retrieval.sql`
 
 ## What to change
 
@@ -31,7 +31,7 @@ You need:
 
 ### 4. Keep the hybrid search SQL generic
 
-The main fusion logic can stay generic.
+The main fusion logic can stay generic and live in `sql/02_retrieval.sql`.
 
 What matters is that:
 

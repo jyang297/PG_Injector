@@ -34,7 +34,7 @@ flowchart TD
     U["User question"] --> N["Normalization + retrieval input build\nscripts/query.py"]
     N --> L["Lexical query\nfor tsvector"]
     N --> S["Semantic query embedding\nfor pgvector"]
-    L --> H["hybrid_search()\nsql/01_init.sql"]
+    L --> H["hybrid_search()\nsql/02_retrieval.sql"]
     S --> H
     E --> H
 
@@ -51,7 +51,8 @@ flowchart TD
 
 1. Read source metadata files from `data/` or a custom source directory.
 2. Convert raw source shape into `MetadataCatalog`.
-3. Validate required contracts such as `catalog_namespace`, table-qualified columns, and low-cardinality value groups.
+3. Validate required contracts such as `resource_owner`, `resource_namespace`, explicit `table_name + column_name`, and low-cardinality value groups.
+   The reserved `::` separator is not allowed inside raw source identifiers because `table_name::column_name` is reserved for logs and human debugging.
 4. Build `column_definition`, `value_definition`, and placeholder `rule` chunks.
 5. Generate embeddings for `text_semantic`.
 6. Write source tables and `metadata_chunks` into PostgreSQL.
@@ -60,7 +61,7 @@ flowchart TD
 
 1. Receive a raw user question.
 2. Normalize it for lexical retrieval while keeping the original phrasing for semantic embedding.
-3. Run `hybrid_search()` inside one `catalog_namespace`.
+3. Run `hybrid_search()` inside one `resource_owner/resource_namespace`.
 4. Roll chunk hits up to table-qualified columns.
 5. Build `prompt_metadata` with:
    - `normalized_query`

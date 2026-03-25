@@ -23,6 +23,7 @@ Target files:
 - `scripts/load_demo.py`
 - `scripts/query.py`
 - `sql/01_init.sql`
+- `sql/02_retrieval.sql`
 - `scripts/test_metadata_recall.py`
 
 This tutorial folder only contains comments, checklists, and starter signatures.

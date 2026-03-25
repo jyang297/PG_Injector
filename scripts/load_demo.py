@@ -10,7 +10,7 @@ import psycopg
 
 from context_manager_config import get_config
 from embeddings import embed_text, vector_literal
-from metadata_catalog import MetadataCatalog, ValueSpec
+from metadata_catalog import ColumnRef, MetadataCatalog, ValueSpec, log_column_identity
 from normalization import dedupe_terms, normalized_tokens
 from source_adapters import get_source_adapter
 from utils import (
@@ -25,11 +25,15 @@ CONFIG = get_config()
 DATABASE_URL = CONFIG.runtime.database_url
 VALUE_CARDINALITY_LIMIT = CONFIG.loader.value_cardinality_limit
 FATAL_VALIDATION_ISSUES = {
-    "duplicate_column_key",
+    "duplicate_column_identity",
     "duplicate_value_key",
     "duplicate_rule_id",
+    "invalid_columns_payload",
+    "invalid_value_groups_payload",
+    "invalid_rules_payload",
     "missing_column_table_name",
     "missing_value_group_table_name",
+    "invalid_identifier_separator",
 }
 
 DESCRIPTION_STOPWORDS = {
@@ -69,9 +73,14 @@ def parse_args() -> argparse.Namespace:
         description="Load metadata into the PostgreSQL hybrid retrieval demo."
     )
     parser.add_argument(
+        "--owner",
+        default=CONFIG.runtime.default_resource_owner,
+        help="Top-level resource owner to replace.",
+    )
+    parser.add_argument(
         "--namespace",
-        default=CONFIG.runtime.default_catalog_namespace,
-        help="Target catalog namespace to replace.",
+        default=CONFIG.runtime.default_resource_namespace,
+        help="Target resource namespace to replace.",
     )
     parser.add_argument(
         "--data-dir",
@@ -116,10 +125,10 @@ def build_text_exact(*parts) -> str:
     return " ".join(dedupe_terms(exact_terms))
 
 
-def group_values_by_column(values: list[ValueSpec]) -> dict[str, list[ValueSpec]]:
-    grouped: dict[str, list[ValueSpec]] = defaultdict(list)
+def group_values_by_column(values: list[ValueSpec]) -> dict[ColumnRef, list[ValueSpec]]:
+    grouped: dict[ColumnRef, list[ValueSpec]] = defaultdict(list)
     for value in values:
-        grouped[value.column_key].append(value)
+        grouped[value.ref].append(value)
     return dict(grouped)
 
 
@@ -132,14 +141,22 @@ def build_metadata_chunks(catalog: MetadataCatalog):
     # function is the canonical projection from the internal catalog model into
     # retrieval text plus structured payload. Raw-source shape differences
     # should already have been absorbed by the source adapter layer.
-    column_map = {column.column_key: column for column in catalog.columns}
+    column_map = {column.ref: column for column in catalog.columns}
     value_groups = group_values_by_column(catalog.values)
     chunks = []
     indexed_value_groups = 0
     indexed_value_count = 0
+    value_cardinality_by_column = {
+        column_ref: len(values)
+        for column_ref, values in value_groups.items()
+    }
+    mandatory_columns = {
+        column_ref
+        for column_ref, values in value_groups.items()
+        if values and not should_index_values(values)
+    }
 
     for column in catalog.columns:
-        column_key = column.column_key
         table_name = column.table_name
         column_name = column.column_name
         raw_column_name = column.raw_column_name
@@ -149,27 +166,28 @@ def build_metadata_chunks(catalog: MetadataCatalog):
         text_exact = build_text_exact(
             table_name,
             column_name,
-            raw_column_name,
             aliases,
             description_keywords(description),
         )
         text_semantic = compact_sentence(description)
         payload = {
-            "catalog_namespace": catalog.namespace,
-            "column_key": column_key,
+            "resource_owner": catalog.resource_owner,
+            "resource_namespace": catalog.resource_namespace,
             "table_name": table_name,
             "column_name": column_name,
             "raw_column_name": raw_column_name,
             "description": description,
             "aliases": aliases,
             "data_type": column.data_type,
+            "value_cardinality": value_cardinality_by_column.get(column.ref, 0),
+            "mandatory_description_in_prompt": column.ref in mandatory_columns,
         }
         chunks.append(
             {
-                "catalog_namespace": catalog.namespace,
+                "resource_owner": catalog.resource_owner,
+                "resource_namespace": catalog.resource_namespace,
                 "chunk_key": f"column_definition::{table_name}::{column_name}",
                 "chunk_type": "column_definition",
-                "column_key": column_key,
                 "table_name": table_name,
                 "column_name": column_name,
                 "rule_id": None,
@@ -180,8 +198,8 @@ def build_metadata_chunks(catalog: MetadataCatalog):
             }
         )
 
-    for column_key, values in value_groups.items():
-        column = column_map.get(column_key)
+    for column_ref, values in value_groups.items():
+        column = column_map.get(column_ref)
         if column is None:
             continue
 
@@ -213,8 +231,8 @@ def build_metadata_chunks(catalog: MetadataCatalog):
                 f"{compact_sentence(value_gloss)}"
             )
             payload = {
-                "catalog_namespace": catalog.namespace,
-                "parent_column_key": column_key,
+                "resource_owner": catalog.resource_owner,
+                "resource_namespace": catalog.resource_namespace,
                 "table_name": table_name,
                 "parent_column": column_name,
                 "raw_column_name": column.raw_column_name,
@@ -225,10 +243,10 @@ def build_metadata_chunks(catalog: MetadataCatalog):
             }
             chunks.append(
                 {
-                    "catalog_namespace": catalog.namespace,
+                    "resource_owner": catalog.resource_owner,
+                    "resource_namespace": catalog.resource_namespace,
                     "chunk_key": f"value_definition::{table_name}::{column_name}::{raw_value}",
                     "chunk_type": "value_definition",
-                    "column_key": column_key,
                     "table_name": table_name,
                     "column_name": column_name,
                     "rule_id": None,
@@ -243,15 +261,23 @@ def build_metadata_chunks(catalog: MetadataCatalog):
         # Rule chunks share the same storage and retrieval path so later rule
         # RAG can plug into the existing hybrid search and column rollup flow.
         rule_id = rule.rule_id
-        candidate_columns = dedupe_terms(rule.candidate_columns)
+        candidate_columns = [
+            {
+                "table_name": ref.table_name,
+                "column_name": ref.column_name,
+            }
+            for ref in rule.candidate_columns
+        ]
+        candidate_labels = [ref.log_label for ref in rule.candidate_columns]
         trigger_terms = dedupe_terms(rule.trigger_terms)
         intent = rule.intent
         priority = int(rule.priority)
         description = rule.description
-        text_exact = build_text_exact(rule_id, trigger_terms, candidate_columns)
+        text_exact = build_text_exact(rule_id, trigger_terms, candidate_labels)
         text_semantic = compact_sentence(description)
         payload = {
-            "catalog_namespace": catalog.namespace,
+            "resource_owner": catalog.resource_owner,
+            "resource_namespace": catalog.resource_namespace,
             "candidate_columns": candidate_columns,
             "intent": intent,
             "priority": priority,
@@ -260,10 +286,10 @@ def build_metadata_chunks(catalog: MetadataCatalog):
         }
         chunks.append(
             {
-                "catalog_namespace": catalog.namespace,
+                "resource_owner": catalog.resource_owner,
+                "resource_namespace": catalog.resource_namespace,
                 "chunk_key": f"rule::{rule_id}",
                 "chunk_type": "rule",
-                "column_key": None,
                 "table_name": None,
                 "column_name": None,
                 "rule_id": rule_id,
@@ -279,19 +305,36 @@ def build_metadata_chunks(catalog: MetadataCatalog):
         "indexed_values": indexed_value_count,
         "total_value_groups": len(value_groups),
         "total_values": len(catalog.values),
+        "mandatory_description_columns": len(mandatory_columns),
+        "mandatory_description_labels": sorted(
+            log_column_identity(ref.table_name, ref.column_name)
+            for ref in mandatory_columns
+        ),
     }
 
 
-def replace_namespace(cur: psycopg.Cursor, namespace: str) -> None:
+def replace_namespace(
+    cur: psycopg.Cursor,
+    resource_owner: str,
+    resource_namespace: str,
+) -> None:
     # Namespace-scoped replacement keeps one datasource refresh from deleting
     # every other catalog in the same database.
     cur.execute(
-        "DELETE FROM rule_catalog WHERE catalog_namespace = %s",
-        (namespace,),
+        """
+        DELETE FROM rule_catalog
+        WHERE resource_owner = %s
+          AND resource_namespace = %s
+        """,
+        (resource_owner, resource_namespace),
     )
     cur.execute(
-        "DELETE FROM column_catalog WHERE catalog_namespace = %s",
-        (namespace,),
+        """
+        DELETE FROM column_catalog
+        WHERE resource_owner = %s
+          AND resource_namespace = %s
+        """,
+        (resource_owner, resource_namespace),
     )
 
 
@@ -305,7 +348,8 @@ def fatal_validation_issues(catalog: MetadataCatalog):
 
 def main():
     args = parse_args()
-    namespace = args.namespace
+    resource_owner = args.owner
+    resource_namespace = args.namespace
     data_dir = Path(args.data_dir).expanduser().resolve()
     source_adapter_name = args.source_adapter
     source_adapter = get_source_adapter(source_adapter_name)
@@ -316,7 +360,8 @@ def main():
         "runtime_config",
         {
             "database_url": DATABASE_URL,
-            "catalog_namespace": namespace,
+            "resource_owner": resource_owner,
+            "resource_namespace": resource_namespace,
             "data_dir": str(data_dir),
             "source_adapter": source_adapter_name,
             "table_name_contract": "required",
@@ -328,11 +373,12 @@ def main():
         # The adapter boundary is where raw JSON variability is absorbed. After
         # this step the rest of the pipeline only deals with a stable internal
         # catalog contract.
-        catalog = source_adapter.load(data_dir, namespace)
+        catalog = source_adapter.load(data_dir, resource_owner, resource_namespace)
 
     if not catalog.columns:
         raise SystemExit(
-            f"Refusing to replace namespace {namespace!r} with an empty catalog."
+            "Refusing to replace "
+            f"{resource_owner!r}/{resource_namespace!r} with an empty catalog."
         )
 
     value_catalog_source = catalog.source_files.get("values")
@@ -382,7 +428,8 @@ def main():
     if fatal_issues:
         raise SystemExit(
             "Refusing to load namespace "
-            f"{namespace!r} because fatal validation issues were found: "
+            f"{resource_owner!r}/{resource_namespace!r} because fatal validation "
+            f"issues were found: "
             f"{[asdict(issue) for issue in fatal_issues[:5]]}"
         )
 
@@ -399,11 +446,21 @@ def main():
             ),
         },
     )
+    value_groups = group_values_by_column(catalog.values)
+    value_cardinality_by_column = {
+        column_ref: len(values)
+        for column_ref, values in value_groups.items()
+    }
+    mandatory_columns = {
+        column_ref
+        for column_ref, values in value_groups.items()
+        if values and not should_index_values(values)
+    }
 
     with psycopg.connect(DATABASE_URL) as conn:
         with conn.cursor() as cur:
             with instrumentation.stage("db_replace_namespace"):
-                replace_namespace(cur, namespace)
+                replace_namespace(cur, resource_owner, resource_namespace)
 
             with instrumentation.stage(
                 "db_insert_column_catalog",
@@ -414,20 +471,23 @@ def main():
                 cur.executemany(
                     """
                     INSERT INTO column_catalog
-                      (catalog_namespace, column_key, table_name, column_name,
-                       raw_column_name, description, aliases, data_type)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                      (resource_owner, resource_namespace, table_name, column_name,
+                       raw_column_name, description, aliases, data_type,
+                       value_cardinality, mandatory_description_in_prompt)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """,
                     [
                         (
-                            namespace,
-                            column.column_key,
+                            resource_owner,
+                            resource_namespace,
                             column.table_name,
                             column.column_name,
                             column.raw_column_name,
                             column.description,
                             column.aliases,
                             column.data_type,
+                            value_cardinality_by_column.get(column.ref, 0),
+                            column.ref in mandatory_columns,
                         )
                         for column in catalog.columns
                     ],
@@ -435,8 +495,10 @@ def main():
 
             value_rows = [
                 (
-                    namespace,
-                    value.column_key,
+                    resource_owner,
+                    resource_namespace,
+                    value.table_name,
+                    value.column_name,
                     value.raw_value,
                     value.value_gloss,
                     value.synonyms,
@@ -451,9 +513,10 @@ def main():
                 cur.executemany(
                     """
                     INSERT INTO column_value_catalog
-                      (catalog_namespace, column_key, raw_value,
+                      (resource_owner, resource_namespace, table_name, column_name,
+                       raw_value,
                        value_description, synonyms, business_tags)
-                    VALUES (%s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                     """,
                     value_rows,
                 )
@@ -466,28 +529,45 @@ def main():
                     cur.executemany(
                         """
                         INSERT INTO rule_catalog
-                          (catalog_namespace, rule_id, text_exact, text_semantic,
+                          (resource_owner, resource_namespace, rule_id,
+                           text_exact, text_semantic,
                            candidate_columns, intent, priority, payload)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+                        VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s::jsonb)
                         """,
                         [
                             (
-                                namespace,
+                                resource_owner,
+                                resource_namespace,
                                 rule.rule_id,
                                 build_text_exact(
                                     rule.rule_id,
                                     rule.trigger_terms,
-                                    rule.candidate_columns,
+                                    [ref.log_label for ref in rule.candidate_columns],
                                 ),
                                 compact_sentence(rule.description),
-                                rule.candidate_columns,
+                                json.dumps(
+                                    [
+                                        {
+                                            "table_name": ref.table_name,
+                                            "column_name": ref.column_name,
+                                        }
+                                        for ref in rule.candidate_columns
+                                    ]
+                                ),
                                 rule.intent,
                                 int(rule.priority),
                                 json.dumps(
                                     {
-                                        "catalog_namespace": namespace,
+                                        "resource_owner": resource_owner,
+                                        "resource_namespace": resource_namespace,
                                         "trigger_terms": rule.trigger_terms,
-                                        "candidate_columns": rule.candidate_columns,
+                                        "candidate_columns": [
+                                            {
+                                                "table_name": ref.table_name,
+                                                "column_name": ref.column_name,
+                                            }
+                                            for ref in rule.candidate_columns
+                                        ],
                                         "rule_text": rule.rule_text,
                                     }
                                 ),
@@ -507,10 +587,10 @@ def main():
                     embedding = vector_literal(embed_text(chunk["text_semantic"]))
                     chunk_rows.append(
                         (
-                            chunk["catalog_namespace"],
+                            chunk["resource_owner"],
+                            chunk["resource_namespace"],
                             chunk["chunk_key"],
                             chunk["chunk_type"],
-                            chunk["column_key"],
                             chunk["table_name"],
                             chunk["column_name"],
                             chunk["rule_id"],
@@ -529,8 +609,8 @@ def main():
                 cur.executemany(
                     """
                     INSERT INTO metadata_chunks
-                      (catalog_namespace, chunk_key, chunk_type,
-                       column_key, table_name, column_name, rule_id, raw_value,
+                      (resource_owner, resource_namespace, chunk_key, chunk_type,
+                       table_name, column_name, rule_id, raw_value,
                        text_exact, text_semantic, payload, embedding)
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::vector)
                     """,
@@ -542,9 +622,10 @@ def main():
                     """
                     SELECT count(*)
                     FROM metadata_chunks
-                    WHERE catalog_namespace = %s
+                    WHERE resource_owner = %s
+                      AND resource_namespace = %s
                     """,
-                    (namespace,),
+                    (resource_owner, resource_namespace),
                 )
                 total_chunks = cur.fetchone()[0]
 
@@ -555,7 +636,7 @@ def main():
 
     print(f"Loaded demo data into {DATABASE_URL}")
     print(
-        f"Namespace {namespace}: "
+        f"Resource {resource_owner}/{resource_namespace}: "
         "Created "
         f"{len(catalog.columns)} columns, "
         f"{len(catalog.values)} values, "

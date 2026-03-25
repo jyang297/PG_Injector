@@ -17,6 +17,10 @@ The current repo boundary stops after metadata retrieval and prompt assembly.
 
 See [DATAFLOW.md](./DATAFLOW.md) for the system boundary diagram.
 
+Current source-contract note:
+
+- raw source identifiers must not contain the reserved `::` separator because `table_name::column_name` is reserved for logs and debugging only
+
 ## Planned meta rule contract
 
 Rule expansion is intentionally deferred. The next step is not a large per-column rule system.
@@ -48,8 +52,8 @@ The exact storage may change, but the intended contract is:
   "rule_id": "enterprise_contract_gate",
   "trigger_terms": ["exec approval", "signoff", "legal block"],
   "candidate_columns": [
-    "app_metadata::contract_state",
-    "app_metadata::compliance_posture"
+    {"table_name": "app_metadata", "column_name": "contract_state"},
+    {"table_name": "app_metadata", "column_name": "compliance_posture"}
   ],
   "text_semantic": "Use this rule when the query is about commercial or legal blockers.",
   "rule_text": "Rewrite hints: ...\nSQL rules: ...\nExamples: ..."

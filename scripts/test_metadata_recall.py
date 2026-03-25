@@ -14,7 +14,8 @@ from query import (
 
 CONFIG = get_config()
 DATABASE_URL = CONFIG.runtime.database_url
-CATALOG_NAMESPACE = CONFIG.runtime.default_catalog_namespace
+RESOURCE_OWNER = CONFIG.runtime.default_resource_owner
+RESOURCE_NAMESPACE = CONFIG.runtime.default_resource_namespace
 
 
 def main():
@@ -31,15 +32,15 @@ def main():
         {
             "query": "blocked by legal or waiting for exec approval",
             "expected": {
-                "app_metadata::compliance_posture",
-                "app_metadata::contract_state",
+                ("app_metadata", "compliance_posture"),
+                ("app_metadata", "contract_state"),
             },
         },
         {
             "query": "欧盟数据驻留和路线图承诺",
             "expected": {
-                "app_metadata::data_residency",
-                "app_metadata::roadmap_commitment",
+                ("app_metadata", "data_residency"),
+                ("app_metadata", "roadmap_commitment"),
             },
         },
     ]
@@ -50,18 +51,20 @@ def main():
             query_embedding = build_query_embedding(retrieval_inputs["semantic_query"])
             rows = fetch_hybrid_results(
                 conn,
-                CATALOG_NAMESPACE,
+                RESOURCE_OWNER,
+                RESOURCE_NAMESPACE,
                 query_embedding,
                 retrieval_inputs["lexical_query"],
             )
             bundles = build_candidate_columns(
                 conn,
-                CATALOG_NAMESPACE,
+                RESOURCE_OWNER,
+                RESOURCE_NAMESPACE,
                 rows,
                 retrieval_inputs["keywords"],
                 top_columns=CONFIG.query.top_candidate_columns,
             )
-            seen = {bundle["column_key"] for bundle in bundles}
+            seen = {(bundle["table_name"], bundle["column_name"]) for bundle in bundles}
             missing = sorted(case["expected"] - seen)
             if missing:
                 raise SystemExit(
@@ -70,7 +73,8 @@ def main():
                 )
 
             prompt_metadata = build_prompt_bundle(
-                CATALOG_NAMESPACE,
+                RESOURCE_OWNER,
+                RESOURCE_NAMESPACE,
                 case["query"],
                 rows,
                 bundles,
@@ -85,16 +89,16 @@ def main():
                     f"prompt bundle leaked debug fields: {sorted(leaked)}"
                 )
             candidate = prompt_metadata["candidate_columns"][0]
-            required_keys = {"column_key", "table_name", "column_name"}
+            required_keys = {"table_name", "column_name"}
             missing_keys = required_keys - set(candidate)
             if missing_keys:
                 raise SystemExit(
                     f"prompt bundle missing table-qualified identity fields: "
                     f"{sorted(missing_keys)}"
                 )
-            if "::" not in candidate["column_key"]:
+            if "column_key" in candidate:
                 raise SystemExit(
-                    "prompt bundle should expose table-qualified column_key values"
+                    "prompt bundle should not expose persisted column_key fields"
                 )
 
     print("metadata recall passed")

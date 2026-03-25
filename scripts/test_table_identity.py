@@ -28,6 +28,7 @@ def write_json(path: Path, payload) -> None:
 
 
 def main():
+    owner = "test_owner"
     namespace = "test.table_identity"
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -74,6 +75,8 @@ def main():
             [
                 sys.executable,
                 "scripts/load_demo.py",
+                "--owner",
+                owner,
                 "--namespace",
                 namespace,
                 "--data-dir",
@@ -89,29 +92,31 @@ def main():
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT column_key, table_name, column_name
+                SELECT table_name, column_name
                 FROM column_catalog
-                WHERE catalog_namespace = %s
-                ORDER BY column_key
+                WHERE resource_owner = %s
+                  AND resource_namespace = %s
+                ORDER BY table_name, column_name
                 """,
-                (namespace,),
+                (owner, namespace),
             )
             columns = cur.fetchall()
             cur.execute(
                 """
                 SELECT chunk_key
                 FROM metadata_chunks
-                WHERE catalog_namespace = %s
+                WHERE resource_owner = %s
+                  AND resource_namespace = %s
                   AND chunk_type = 'column_definition'
                 ORDER BY chunk_key
                 """,
-                (namespace,),
+                (owner, namespace),
             )
             chunk_keys = [row[0] for row in cur.fetchall()]
 
     expected_columns = [
-        ("accounts::status", "accounts", "status"),
-        ("contracts::status", "contracts", "status"),
+        ("accounts", "status"),
+        ("contracts", "status"),
     ]
     if columns != expected_columns:
         raise SystemExit(
@@ -127,31 +132,34 @@ def main():
         )
 
     query_cases = [
-        ("account lifecycle status", "accounts::status"),
-        ("contract approval status", "contracts::status"),
+        ("account lifecycle status", ("accounts", "status")),
+        ("contract approval status", ("contracts", "status")),
     ]
     with psycopg.connect(DATABASE_URL) as conn:
-        for query_text, expected_column_key in query_cases:
+        for query_text, expected_identity in query_cases:
             retrieval_inputs = build_retrieval_inputs(query_text)
             rows = fetch_hybrid_results(
                 conn,
+                owner,
                 namespace,
                 build_query_embedding(retrieval_inputs["semantic_query"]),
                 retrieval_inputs["lexical_query"],
             )
             bundles = build_candidate_columns(
                 conn,
+                owner,
                 namespace,
                 rows,
                 retrieval_inputs["keywords"],
                 top_columns=2,
             )
-            seen = [bundle["column_key"] for bundle in bundles]
-            if expected_column_key not in seen:
+            seen = [(bundle["table_name"], bundle["column_name"]) for bundle in bundles]
+            if expected_identity not in seen:
                 raise SystemExit(
-                    f"query-time rollup missed {expected_column_key}: seen={seen}"
+                    f"query-time rollup missed {expected_identity}: seen={seen}"
                 )
             prompt_metadata = build_prompt_bundle(
+                owner,
                 namespace,
                 query_text,
                 rows,
@@ -159,12 +167,12 @@ def main():
                 retrieval_inputs,
             )
             prompt_seen = [
-                bundle["column_key"]
+                (bundle["table_name"], bundle["column_name"])
                 for bundle in prompt_metadata["candidate_columns"]
             ]
-            if expected_column_key not in prompt_seen:
+            if expected_identity not in prompt_seen:
                 raise SystemExit(
-                    f"prompt bundle missed {expected_column_key}: seen={prompt_seen}"
+                    f"prompt bundle missed {expected_identity}: seen={prompt_seen}"
                 )
 
     print("table identity passed")

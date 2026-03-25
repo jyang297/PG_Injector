@@ -1,0 +1,208 @@
+[
+  {
+    "column_key": "launch_stage",
+    "values": [
+      {
+        "raw_value": "pilot",
+        "value_description": "Limited rollout. People may describe this as early access, trial, or not yet broadly live.",
+        "synonyms": ["trial", "early access", "limited rollout"]
+      },
+      {
+        "raw_value": "ga",
+        "value_description": "General availability. The app is broadly live in production.",
+        "synonyms": ["general availability", "live", "production"]
+      },
+      {
+        "raw_value": "paused",
+        "value_description": "Rollout is halted for now.",
+        "synonyms": ["halted", "stopped", "paused"]
+      }
+    ]
+  },
+  {
+    "column_key": "billing_model",
+    "values": [
+      {
+        "raw_value": "usage_based",
+        "value_description": "Revenue scales with metered product usage.",
+        "synonyms": ["metered", "pay as you go", "consumption"]
+      },
+      {
+        "raw_value": "seat_based",
+        "value_description": "Revenue scales with number of licensed users or seats.",
+        "synonyms": ["per seat", "licensed users"]
+      },
+      {
+        "raw_value": "internal_only",
+        "value_description": "Not sold externally. The app is for internal operations only.",
+        "synonyms": ["not commercial", "back office", "internal"]
+      },
+      {
+        "raw_value": "grandfathered",
+        "value_description": "Legacy pricing is still honored for existing customers.",
+        "synonyms": ["legacy contract", "old pricing", "carry-over terms"]
+      }
+    ]
+  },
+  {
+    "column_key": "compliance_posture",
+    "values": [
+      {
+        "raw_value": "cleared",
+        "value_description": "Legal, privacy, and security review are complete and not blocking launch.",
+        "synonyms": ["approved", "cleared", "not blocked"]
+      },
+      {
+        "raw_value": "under_review",
+        "value_description": "Review is still in progress. The app is not fully blocked but cannot be considered fully cleared either.",
+        "synonyms": ["pending review", "in review", "awaiting review"]
+      },
+      {
+        "raw_value": "blocked_by_legal",
+        "value_description": "Legal or privacy review is actively stopping rollout. Teams might call this blocked, stuck in legal, or waiting on compliance approval.",
+        "synonyms": ["blocked", "stuck in legal", "waiting on compliance", "legal hold"]
+      }
+    ]
+  },
+  {
+    "column_key": "owner_signal",
+    "values": [
+      {
+        "raw_value": "green",
+        "value_description": "Owner sentiment is positive and risk is low.",
+        "synonyms": ["healthy", "positive", "low concern"]
+      },
+      {
+        "raw_value": "amber",
+        "value_description": "Owner sentiment is cautious. There are warning signs or moderate risk.",
+        "synonyms": ["warning", "at risk", "caution"]
+      },
+      {
+        "raw_value": "red",
+        "value_description": "Owner sentiment is negative. The app is likely facing severe concern or escalation.",
+        "synonyms": ["critical", "severe concern", "high alert"]
+      }
+    ]
+  },
+  {
+    "column_key": "integration_health",
+    "values": [
+      {
+        "raw_value": "stable",
+        "value_description": "Technical integrations are reliable.",
+        "synonyms": ["reliable", "healthy", "steady"]
+      },
+      {
+        "raw_value": "flaky",
+        "value_description": "Technical integrations fail intermittently.",
+        "synonyms": ["intermittent", "unreliable", "unstable"]
+      },
+      {
+        "raw_value": "degraded",
+        "value_description": "Technical integrations are currently underperforming or partially impaired.",
+        "synonyms": ["degraded", "impaired", "underperforming"]
+      }
+    ]
+  },
+  {
+    "column_key": "escalation_risk",
+    "values": [
+      {
+        "raw_value": "low",
+        "value_description": "Escalation is unlikely in the near term.",
+        "synonyms": ["safe", "low risk"]
+      },
+      {
+        "raw_value": "medium",
+        "value_description": "Escalation is possible if conditions worsen.",
+        "synonyms": ["watch", "moderate risk"]
+      },
+      {
+        "raw_value": "high",
+        "value_description": "Leadership or cross-functional intervention is likely soon.",
+        "synonyms": ["urgent", "high risk", "likely escalation"]
+      }
+    ]
+  },
+  {
+    "column_key": "contract_state",
+    "values": [
+      {
+        "raw_value": "active",
+        "value_description": "Commercial agreement is in force and not blocked.",
+        "synonyms": ["signed", "current contract"]
+      },
+      {
+        "raw_value": "pending_renewal",
+        "value_description": "Existing agreement is nearing renewal and needs commercial follow-up.",
+        "synonyms": ["renewal needed", "renewal pending"]
+      },
+      {
+        "raw_value": "needs_exec_signoff",
+        "value_description": "The commercial motion cannot proceed until an executive approver signs off.",
+        "synonyms": ["waiting for exec approval", "exec signoff", "needs approval"]
+      }
+    ]
+  },
+  {
+    "column_key": "support_tier",
+    "values": [
+      {
+        "raw_value": "standard",
+        "value_description": "Normal support coverage.",
+        "synonyms": ["default support"]
+      },
+      {
+        "raw_value": "premium",
+        "value_description": "Elevated support coverage for important customers or internal teams.",
+        "synonyms": ["elevated support", "priority support"]
+      },
+      {
+        "raw_value": "white_glove",
+        "value_description": "Highest support intensity with close operational attention.",
+        "synonyms": ["high touch", "concierge support"]
+      }
+    ]
+  },
+  {
+    "column_key": "data_residency",
+    "values": [
+      {
+        "raw_value": "global",
+        "value_description": "No single-region restriction is enforced.",
+        "synonyms": ["multi region", "worldwide"]
+      },
+      {
+        "raw_value": "eu_only",
+        "value_description": "Data must stay in EU infrastructure.",
+        "synonyms": ["europe only", "eu residency", "gdpr restricted"]
+      },
+      {
+        "raw_value": "us_only",
+        "value_description": "Data must stay in US infrastructure.",
+        "synonyms": ["united states only", "us residency"]
+      }
+    ]
+  },
+  {
+    "column_key": "roadmap_commitment",
+    "values": [
+      {
+        "raw_value": "committed",
+        "value_description": "The product team has committed roadmap support.",
+        "synonyms": ["backed", "planned", "officially supported"]
+      },
+      {
+        "raw_value": "exploratory",
+        "value_description": "The team is still exploring fit and has not committed yet.",
+        "synonyms": ["researching", "tentative", "not committed"]
+      },
+      {
+        "raw_value": "frozen",
+        "value_description": "Roadmap work is paused or deprioritized.",
+        "synonyms": ["paused roadmap", "deprioritized"]
+      }
+    ]
+  }
+]
+

@@ -1,0 +1,32 @@
+[
+  {
+    "app_id": "atlaspay",
+    "app_name": "AtlasPay",
+    "aliases": ["atlas pay", "ap"]
+  },
+  {
+    "app_id": "northstar_crm",
+    "app_name": "Northstar CRM",
+    "aliases": ["northstar", "ns crm"]
+  },
+  {
+    "app_id": "heliodocs",
+    "app_name": "Helio Docs",
+    "aliases": ["helio", "hdocs"]
+  },
+  {
+    "app_id": "orchard_ai",
+    "app_name": "Orchard AI",
+    "aliases": ["orchard", "oai platform"]
+  },
+  {
+    "app_id": "abc_dotnet",
+    "app_name": "abc .Net",
+    "aliases": ["abc dotnet", "dotnet abc", ".net abc", "abc net"]
+  },
+  {
+    "app_id": "dotnet_def",
+    "app_name": ".Net def",
+    "aliases": ["dotnet def", "def dotnet", ".net def", "def net"]
+  }
+]

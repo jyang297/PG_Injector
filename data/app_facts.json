@@ -1,0 +1,221 @@
+[
+  {
+    "app_id": "atlaspay",
+    "facts": {
+      "launch_stage": {
+        "raw_value": "ga",
+        "notes": "Production traffic is enabled for enterprise tenants."
+      },
+      "billing_model": {
+        "raw_value": "usage_based"
+      },
+      "compliance_posture": {
+        "raw_value": "under_review",
+        "notes": "A privacy addendum is still being reviewed."
+      },
+      "owner_signal": {
+        "raw_value": "amber"
+      },
+      "integration_health": {
+        "raw_value": "degraded",
+        "notes": "The billing webhook path is underperforming."
+      },
+      "escalation_risk": {
+        "raw_value": "high"
+      },
+      "contract_state": {
+        "raw_value": "needs_exec_signoff",
+        "notes": "The enterprise expansion cannot close without VP approval."
+      },
+      "support_tier": {
+        "raw_value": "white_glove"
+      },
+      "data_residency": {
+        "raw_value": "eu_only"
+      },
+      "roadmap_commitment": {
+        "raw_value": "committed"
+      }
+    }
+  },
+  {
+    "app_id": "northstar_crm",
+    "facts": {
+      "launch_stage": {
+        "raw_value": "pilot"
+      },
+      "billing_model": {
+        "raw_value": "seat_based"
+      },
+      "compliance_posture": {
+        "raw_value": "blocked_by_legal",
+        "notes": "Customer data retention terms are unresolved."
+      },
+      "owner_signal": {
+        "raw_value": "red"
+      },
+      "integration_health": {
+        "raw_value": "flaky",
+        "notes": "The sync job fails intermittently during peak load."
+      },
+      "escalation_risk": {
+        "raw_value": "high"
+      },
+      "contract_state": {
+        "raw_value": "pending_renewal"
+      },
+      "support_tier": {
+        "raw_value": "premium"
+      },
+      "data_residency": {
+        "raw_value": "us_only"
+      },
+      "roadmap_commitment": {
+        "raw_value": "exploratory"
+      }
+    }
+  },
+  {
+    "app_id": "heliodocs",
+    "facts": {
+      "launch_stage": {
+        "raw_value": "ga"
+      },
+      "billing_model": {
+        "raw_value": "internal_only"
+      },
+      "compliance_posture": {
+        "raw_value": "cleared"
+      },
+      "owner_signal": {
+        "raw_value": "green"
+      },
+      "integration_health": {
+        "raw_value": "stable"
+      },
+      "escalation_risk": {
+        "raw_value": "low"
+      },
+      "contract_state": {
+        "raw_value": "active"
+      },
+      "support_tier": {
+        "raw_value": "standard"
+      },
+      "data_residency": {
+        "raw_value": "global"
+      },
+      "roadmap_commitment": {
+        "raw_value": "frozen"
+      }
+    }
+  },
+  {
+    "app_id": "orchard_ai",
+    "facts": {
+      "launch_stage": {
+        "raw_value": "pilot"
+      },
+      "billing_model": {
+        "raw_value": "grandfathered"
+      },
+      "compliance_posture": {
+        "raw_value": "under_review"
+      },
+      "owner_signal": {
+        "raw_value": "amber"
+      },
+      "integration_health": {
+        "raw_value": "stable"
+      },
+      "escalation_risk": {
+        "raw_value": "medium"
+      },
+      "contract_state": {
+        "raw_value": "active"
+      },
+      "support_tier": {
+        "raw_value": "premium"
+      },
+      "data_residency": {
+        "raw_value": "eu_only"
+      },
+      "roadmap_commitment": {
+        "raw_value": "committed",
+        "notes": "Product is actively investing in the next two quarters."
+      }
+    }
+  },
+  {
+    "app_id": "abc_dotnet",
+    "facts": {
+      "launch_stage": {
+        "raw_value": "pilot"
+      },
+      "billing_model": {
+        "raw_value": "seat_based"
+      },
+      "compliance_posture": {
+        "raw_value": "cleared"
+      },
+      "owner_signal": {
+        "raw_value": "amber"
+      },
+      "integration_health": {
+        "raw_value": "stable"
+      },
+      "escalation_risk": {
+        "raw_value": "medium"
+      },
+      "contract_state": {
+        "raw_value": "active"
+      },
+      "support_tier": {
+        "raw_value": "premium"
+      },
+      "data_residency": {
+        "raw_value": "global"
+      },
+      "roadmap_commitment": {
+        "raw_value": "exploratory",
+        "notes": "The team is validating market fit before full investment."
+      }
+    }
+  },
+  {
+    "app_id": "dotnet_def",
+    "facts": {
+      "launch_stage": {
+        "raw_value": "ga"
+      },
+      "billing_model": {
+        "raw_value": "usage_based"
+      },
+      "compliance_posture": {
+        "raw_value": "under_review"
+      },
+      "owner_signal": {
+        "raw_value": "green"
+      },
+      "integration_health": {
+        "raw_value": "stable"
+      },
+      "escalation_risk": {
+        "raw_value": "low"
+      },
+      "contract_state": {
+        "raw_value": "active"
+      },
+      "support_tier": {
+        "raw_value": "standard"
+      },
+      "data_residency": {
+        "raw_value": "eu_only"
+      },
+      "roadmap_commitment": {
+        "raw_value": "committed",
+        "notes": "The .Net extension package is already on the committed roadmap."
+      }
+    }
+  }
+]

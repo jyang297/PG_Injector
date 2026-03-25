@@ -1,0 +1,52 @@
+[
+  {
+    "table_name": "app_metadata",
+    "column_name": "launch_stage",
+    "description": "Current rollout maturity. It tells whether the app is still in pilot, generally available, or paused."
+  },
+  {
+    "table_name": "app_metadata",
+    "column_name": "billing_model",
+    "description": "Commercial packaging status. It captures whether pricing is usage based, seat based, internal only, or grandfathered legacy pricing."
+  },
+  {
+    "table_name": "app_metadata",
+    "column_name": "compliance_posture",
+    "description": "Risk status from legal, privacy, and security review. This field tells whether rollout is cleared, under review, or actively blocked."
+  },
+  {
+    "table_name": "app_metadata",
+    "column_name": "owner_signal",
+    "description": "Executive owner sentiment. Green means healthy, amber means caution, red means serious concern or likely escalation."
+  },
+  {
+    "table_name": "app_metadata",
+    "column_name": "integration_health",
+    "description": "Operational quality of the app's technical integrations. Stable means reliable, flaky means intermittent issues, degraded means currently underperforming."
+  },
+  {
+    "table_name": "app_metadata",
+    "column_name": "escalation_risk",
+    "description": "Likelihood that leadership or cross-functional teams will need to intervene soon."
+  },
+  {
+    "table_name": "app_metadata",
+    "column_name": "contract_state",
+    "description": "Commercial agreement status. This can indicate an active contract, a pending renewal, or a deal that needs executive signoff before it can move."
+  },
+  {
+    "table_name": "app_metadata",
+    "column_name": "support_tier",
+    "description": "Support intensity committed to the app, ranging from standard coverage to white glove support."
+  },
+  {
+    "table_name": "app_metadata",
+    "column_name": "data_residency",
+    "description": "Primary geographic restriction for data hosting and processing, such as global, EU only, or US only."
+  },
+  {
+    "table_name": "app_metadata",
+    "column_name": "roadmap_commitment",
+    "description": "How strongly the product team is backing the app on the roadmap. It may be committed, exploratory, or frozen."
+  }
+]

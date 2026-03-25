@@ -20,7 +20,7 @@ You will implement the feature in the real repo files, not in this tutorial fold
 Target files:
 
 - `scripts/normalization.py`
-- `scripts/load_demo.py`
+- `scripts/load_metadata.py`
 - `scripts/query.py`
 - `sql/01_init.sql`
 - `sql/02_retrieval.sql`
@@ -43,7 +43,7 @@ After each step, run:
 
 ```bash
 export DATABASE_URL=postgresql://postgres:postgres@localhost:5433/context_demo
-python scripts/load_demo.py
+python scripts/load_metadata.py
 python scripts/query.py "blocked by legal or waiting for exec approval"
 python scripts/test_metadata_recall.py
 ```

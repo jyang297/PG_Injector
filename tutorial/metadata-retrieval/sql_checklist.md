@@ -48,5 +48,5 @@ Reset flow:
 ```bash
 docker compose down -v
 docker compose up -d
-python scripts/load_demo.py
+python scripts/load_metadata.py
 ```

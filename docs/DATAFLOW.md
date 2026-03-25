@@ -28,7 +28,7 @@ Those steps belong to an external orchestration layer.
 flowchart TD
     A["Source metadata JSON\ncolumn_descriptions.json\nunique_values.json\nrules.json"] --> B["Source adapter\nscripts/source_adapters.py"]
     B --> C["Canonical MetadataCatalog\nscripts/metadata_catalog.py"]
-    C --> D["Chunk builder + loader\nscripts/load_demo.py"]
+    C --> D["Chunk builder + loader\nscripts/load_metadata.py"]
     D --> E["PostgreSQL metadata store\ncolumn_catalog\ncolumn_value_catalog\nrule_catalog\nmetadata_chunks"]
 
     U["User question"] --> N["Normalization + retrieval input build\nscripts/query.py"]

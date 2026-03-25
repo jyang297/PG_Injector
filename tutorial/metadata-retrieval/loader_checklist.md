@@ -1,6 +1,6 @@
 # Loader Checklist
 
-Target file: `scripts/load_demo.py`
+Target file: `scripts/load_metadata.py`
 
 ## What to change
 
@@ -61,7 +61,7 @@ If `rules.json` is present, load one `rule` chunk per rule.
 After implementing the loader changes:
 
 ```bash
-python scripts/load_demo.py
+python scripts/load_metadata.py
 python scripts/query.py "blocked by legal or waiting for exec approval"
 ```
 

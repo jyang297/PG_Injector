@@ -75,9 +75,10 @@ This repo uses a deterministic toy embedding provider so the pipeline is runnabl
 - `data/unique_values.json`: low-cardinality value metadata
 - `data/rules.json`: reserved rule-RAG input, empty in V1
 - `scripts/metadata_catalog.py`: internal canonical catalog types shared across loaders
+- `scripts/metadata_chunking.py`: chunking policy and high-cardinality prompt-injection marking
 - `scripts/source_adapters.py`: raw-source adapters that map JSON into the canonical catalog
 - `scripts/embeddings.py`: toy embedding provider
-- `scripts/load_demo.py`: loads JSON into source tables and `metadata_chunks`
+- `scripts/load_metadata.py`: thin loader entrypoint that writes source tables and `metadata_chunks`
 - `scripts/query.py`: runs hybrid retrieval, rolls hits up to columns, and prints an LLM-ready metadata bundle
 - `scripts/test_source_adapter_validation.py`: validates adapter-side duplicate and rule-candidate handling
 - `scripts/test_namespace_isolation.py`: checks namespace-scoped loading and retrieval isolation
@@ -132,8 +133,8 @@ Load the demo data:
 export DATABASE_URL=postgresql://postgres:postgres@localhost:5433/context_demo
 export RESOURCE_OWNER=demo
 export RESOURCE_NAMESPACE=default
-python scripts/load_demo.py
-python scripts/load_demo.py --owner demo --namespace shadow
+python scripts/load_metadata.py
+python scripts/load_metadata.py --owner demo --namespace shadow
 ```
 
 Run a query:
@@ -152,7 +153,7 @@ python scripts/test_table_identity.py
 python scripts/test_mandatory_column_injection.py
 ```
 
-Logs are written to `logs/load_demo.log` and `logs/query.log` by default.
+Logs are written to `logs/load_metadata.log` and `logs/query.log` by default.
 Set `LOG_LEVEL` or `LOG_DIR` to control verbosity and destination.
 
 ## Retrieval flow
@@ -203,7 +204,7 @@ Raw source variability should stop at the adapter layer.
 
 - `scripts/source_adapters.py` handles file names, nested JSON shapes, legacy `column_key` compatibility, and source-specific validation.
 - `scripts/metadata_catalog.py` defines the internal catalog contract used by the loader.
-- `scripts/load_demo.py` only turns that internal catalog into source-table rows and retrieval chunks.
+- `scripts/load_metadata.py` only turns the canonical catalog into source-table rows and retrieval chunks.
 - duplicate source keys are treated as fatal validation issues before any namespace replacement happens.
 - `table_name` is part of the stable source contract; if raw metadata omits it, the adapter records validation issues and the loader fails before replacing the namespace.
 - raw source identifiers must not contain the reserved `::` separator because `table_name::column_name` is reserved as a log/debug label.

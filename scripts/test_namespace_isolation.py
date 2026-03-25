@@ -26,7 +26,7 @@ def load_namespace(owner: str, namespace: str, data_dir: Path) -> None:
     subprocess.run(
         [
             sys.executable,
-            "scripts/load_demo.py",
+            "scripts/load_metadata.py",
             "--owner",
             owner,
             "--namespace",

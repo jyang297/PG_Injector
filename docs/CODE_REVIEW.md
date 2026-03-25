@@ -25,7 +25,7 @@ The adapter still falls back from `unique_values.json` to `value_catalog.json` i
 Relevant code:
 
 - `scripts/source_adapters.py:40-49`
-- `scripts/load_demo.py:334-344`
+- `scripts/load_metadata.py`
 
 Why it matters:
 

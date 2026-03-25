@@ -158,7 +158,7 @@ def main():
         result = subprocess.run(
             [
                 sys.executable,
-                "scripts/load_demo.py",
+                "scripts/load_metadata.py",
                 "--owner",
                 owner,
                 "--namespace",
@@ -204,7 +204,7 @@ def main():
         subprocess.run(
             [
                 sys.executable,
-                "scripts/load_demo.py",
+                "scripts/load_metadata.py",
                 "--owner",
                 owner,
                 "--namespace",
@@ -253,7 +253,7 @@ def main():
         result = subprocess.run(
             [
                 sys.executable,
-                "scripts/load_demo.py",
+                "scripts/load_metadata.py",
                 "--owner",
                 owner,
                 "--namespace",
@@ -423,7 +423,7 @@ def main():
         result = subprocess.run(
             [
                 sys.executable,
-                "scripts/load_demo.py",
+                "scripts/load_metadata.py",
                 "--owner",
                 owner,
                 "--namespace",
